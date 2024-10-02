@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	reposApiURL = "https://api.github.com/users/TeoMatosevic/repos"
+	reposApiURL = "https://api.github.com/users/TeoMatosevic/repos?type=all"
 	Language    = iota
 	Readme      = iota
 )
@@ -18,7 +18,7 @@ func main() {
 	scheduler(&repos, &urls)
 
 	router := gin.Default()
-	router.GET("/api/v1/", func(c *gin.Context) {
+	router.GET("/api/v1/data", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"repositories": repos,
 		})
