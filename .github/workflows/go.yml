@@ -1,0 +1,26 @@
+name: Build go app and push to Azure
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.23
+
+      - name: Build
+        run: go build -o build/go-app.exe -v
+
+      - name: Deploy on Azure
+        uses: Azure/webapps-deploy@v2
+        with:
+          app-name: interactive-resume-webapi
+          package: build/
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}

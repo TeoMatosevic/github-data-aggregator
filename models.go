@@ -1,7 +1,7 @@
 package main
 
 import (
-    "time"
+	"time"
 )
 
 type Repository struct {
@@ -35,9 +35,9 @@ func (r Repositories) nameExists(name string) bool {
 	return false
 }
 
-func (u Repositories) youngerThan(id float64, t time.Time) bool {
+func (u Repositories) olderThan(id float64, t time.Time) bool {
 	for _, v := range u {
-		if v.Id == id && v.updated_at.After(t) {
+		if v.Id == id && v.updated_at.Before(t) {
 			return true
 		}
 	}
@@ -48,6 +48,16 @@ func (u Repositories) setUpdatedAt(id float64, t time.Time) {
 	for i, v := range u {
 		if v.Id == id {
 			u[i].updated_at = t
+		}
+	}
+}
+
+func (u Repositories) setRepository(id float64, r Repository) {
+	for i, v := range u {
+		if v.Id == id {
+			u[i].Name = r.Name
+			u[i].Full_name = r.Full_name
+			u[i].Description = r.Description
 		}
 	}
 }

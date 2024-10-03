@@ -15,16 +15,13 @@ func scheduler(r *Repositories, urls *Urls) {
 
 func scheduleRepositories(r *Repositories, urls *Urls) {
 	for {
-		getRepositories(r)
-		for _, v := range *r {
-			if !urls.languageExists(v.Id) {
-				*urls = append(*urls, Url{Id: v.Id, Url: v.languages_url, Type: Language})
-			}
-			if !urls.readmeExists(v.Id) {
-				*urls = append(*urls, Url{Id: v.Id, Url: v.readme_url, Type: Readme})
+		u, err := getRepositories(r)
+		if err == nil {
+			for _, v := range u {
+				*urls = append(*urls, v)
 			}
 		}
-		time.Sleep(24 * time.Minute)
+		time.Sleep(2 * time.Minute)
 	}
 }
 
@@ -43,7 +40,7 @@ func scheduleUrls(r *Repositories, urls *Urls) {
 				rc <- &Urls{v}
 			}
 		}
-		time.Sleep(1 * time.Hour)
+		time.Sleep(1 * time.Minute)
 	}
 }
 
@@ -69,7 +66,6 @@ func addReadme(r *Repositories, c chan *Urls) {
 		u := <-c
 		for _, v := range *u {
 			readme, err := getReadme(v.Url)
-			fmt.Println(readme)
 			if err != nil {
 				continue
 			}
@@ -94,10 +90,10 @@ func unmarshalRepository(data []byte) (Repositories, error) {
 		if err != nil {
 			updated_at = time.Now()
 		}
-        description := v["description"]
-        if description == nil {
-            description = ""
-        }
+		description := v["description"]
+		if description == nil {
+			description = ""
+		}
 		r = append(r, Repository{
 			Id:            v["id"].(float64),
 			Name:          v["name"].(string),
@@ -119,27 +115,34 @@ func removeRepository(r *Repositories, name string) {
 	}
 }
 
-func getRepositories(r *Repositories) {
+func getRepositories(r *Repositories) ([]Url, error) {
+	var newUrls []Url
 	response, err := http.Get(reposApiURL)
 	if err != nil {
-		return
+		return nil, err
 	}
 	defer response.Body.Close()
 	res, err := io.ReadAll(response.Body)
 	if err != nil {
-		return
+		return nil, err
 	}
 	repos, err := unmarshalRepository(res)
 	if err != nil {
-		return
+		return nil, err
 	}
 
 	for _, v := range repos {
 		if !r.nameExists(v.Name) {
 			*r = append(*r, v)
-		} else if r.youngerThan(v.Id, v.updated_at) {
-			r.setUpdatedAt(v.Id, v.updated_at)
-			*r = append(*r, v)
+			newUrls = append(newUrls, Url{Id: v.Id, Url: v.languages_url, Type: Language})
+			newUrls = append(newUrls, Url{Id: v.Id, Url: v.readme_url, Type: Readme})
+		} else {
+			if r.olderThan(v.Id, v.updated_at) {
+				r.setUpdatedAt(v.Id, v.updated_at)
+				newUrls = append(newUrls, Url{Id: v.Id, Url: v.languages_url, Type: Language})
+				newUrls = append(newUrls, Url{Id: v.Id, Url: v.readme_url, Type: Readme})
+			}
+			(*r).setRepository(v.Id, v)
 		}
 	}
 
@@ -148,6 +151,8 @@ func getRepositories(r *Repositories) {
 			removeRepository(r, v.Name)
 		}
 	}
+
+	return newUrls, nil
 }
 
 func getLanguages(u string) (map[string]interface{}, error) {
