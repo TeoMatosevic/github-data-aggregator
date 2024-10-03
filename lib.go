@@ -21,7 +21,7 @@ func scheduleRepositories(r *Repositories, urls *Urls) {
 				*urls = append(*urls, v)
 			}
 		}
-		time.Sleep(5 * time.Minute)
+		time.Sleep(24 * time.Hour)
 	}
 }
 
@@ -40,7 +40,7 @@ func scheduleUrls(r *Repositories, urls *Urls) {
 				rc <- &Urls{v}
 			}
 		}
-		time.Sleep(2 * time.Minute)
+		time.Sleep(4 * time.Hour)
 	}
 }
 
