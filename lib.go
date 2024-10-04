@@ -5,8 +5,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 )
+
+func createDir(path string, dir string) {
+	if _, err := os.Stat(path + dir); os.IsNotExist(err) {
+		os.Mkdir(path+dir, 0755)
+	}
+}
 
 func scheduler(r *Repositories, urls *Urls) {
 	go scheduleRepositories(r, urls)
@@ -17,73 +24,86 @@ func scheduleRepositories(r *Repositories, urls *Urls) {
 	for {
 		u, err := getRepositories(r)
 		if err == nil {
-			for _, v := range u {
-				*urls = append(*urls, v)
-			}
+			urls.lock()
+			urls.addUrls(u)
+			urls.unlock()
 		}
-		time.Sleep(24 * time.Hour)
+		time.Sleep(12 * time.Hour)
 	}
 }
 
 func scheduleUrls(r *Repositories, urls *Urls) {
-	lc := make(chan *Urls)
-	rc := make(chan *Urls)
+	lc := make(chan *[]Url)
+	rc := make(chan *[]Url)
 	go addLanguage(r, lc)
 	go addReadme(r, rc)
 	for {
-		u := takeUrls(urls, 40)
+		urls.lock()
+		u := urls.takeUrls(10)
 		for _, v := range u {
 			if v.Type == Language {
-				lc <- &Urls{v}
+				lc <- &[]Url{v}
 			}
 			if v.Type == Readme {
-				rc <- &Urls{v}
+				rc <- &[]Url{v}
 			}
 		}
-		time.Sleep(4 * time.Hour)
+		urls.unlock()
+		time.Sleep(30 * time.Minute)
 	}
 }
 
-func addLanguage(r *Repositories, c chan *Urls) {
+func addLanguage(r *Repositories, c chan *[]Url) {
 	for {
 		u := <-c
 		for _, v := range *u {
+			r.lock()
+			rc := r.readJson()
 			languages, err := getLanguages(v.Url)
 			if err != nil {
+				r.unlock()
 				continue
 			}
-			for i, vv := range *r {
+			for i, vv := range rc {
 				if vv.Id == v.Id {
-					(*r)[i].Languages = languages
+					rc[i].Languages = languages
 				}
 			}
+			r.writeJson(rc)
+			r.unlock()
 		}
 	}
 }
 
-func addReadme(r *Repositories, c chan *Urls) {
+func addReadme(r *Repositories, c chan *[]Url) {
 	for {
 		u := <-c
 		for _, v := range *u {
+			r.lock()
+			rc := r.readJson()
 			readme, err := getReadme(v.Url)
 			if err != nil {
+				r.unlock()
 				continue
 			}
-			for i, vv := range *r {
+			for i, vv := range rc {
 				if vv.Id == v.Id {
-					(*r)[i].Readme = readme
+					rc[i].Readme = readme
 				}
 			}
+			r.writeJson(rc)
+			r.unlock()
 		}
 	}
 }
 
-func unmarshalRepository(data []byte) (Repositories, error) {
-	var r []Repository
+func unmarshalRepository(data []byte) ([]RepositoryEntity, error) {
+	var r []RepositoryEntity
 	var ud []map[string]interface{}
 	var err = json.Unmarshal(data, &ud)
 	if err != nil {
-		return nil, err
+		empty := []RepositoryEntity{}
+		return empty, nil
 	}
 	for _, v := range ud {
 		updated_at, err := time.Parse(time.RFC3339, v["updated_at"].(string))
@@ -94,25 +114,31 @@ func unmarshalRepository(data []byte) (Repositories, error) {
 		if description == nil {
 			description = ""
 		}
-		r = append(r, Repository{
+		readMe := fmt.Sprintf("%s/contents/README.md", v["url"])
+		r = append(r, RepositoryEntity{
 			Id:            v["id"].(float64),
 			Name:          v["name"].(string),
 			Full_name:     v["full_name"].(string),
 			Description:   description.(string),
-			languages_url: v["languages_url"].(string),
-			readme_url:    fmt.Sprintf("%s/contents/README.md", v["url"]),
-			updated_at:    updated_at,
+			Languages_url: v["languages_url"].(string),
+			Readme_url:    readMe,
+			Updated_at:    updated_at,
+			Readme:        "",
 		})
 	}
 	return r, nil
 }
 
 func removeRepository(r *Repositories, name string) {
-	for i, v := range *r {
+	r.lock()
+	rc := r.readJson()
+	for i, v := range rc {
 		if v.Name == name {
-			*r = append((*r)[:i], (*r)[i+1:]...)
+			rc = append((rc)[:i], (rc)[i+1:]...)
 		}
 	}
+	r.writeJson(rc)
+	r.unlock()
 }
 
 func getRepositories(r *Repositories) ([]Url, error) {
@@ -131,26 +157,32 @@ func getRepositories(r *Repositories) ([]Url, error) {
 		return nil, err
 	}
 
+	r.lock()
+	cr := r.readJson()
+
 	for _, v := range repos {
-		if !r.nameExists(v.Name) {
-			*r = append(*r, v)
-			newUrls = append(newUrls, Url{Id: v.Id, Url: v.languages_url, Type: Language})
-			newUrls = append(newUrls, Url{Id: v.Id, Url: v.readme_url, Type: Readme})
+		if !nameExists(cr, v.Name) {
+			cr = append(cr, v)
+			newUrls = append(newUrls, Url{Id: v.Id, Url: v.Languages_url, Type: Language})
+			newUrls = append(newUrls, Url{Id: v.Id, Url: v.Readme_url, Type: Readme})
 		} else {
-			if r.olderThan(v.Id, v.updated_at) {
-				r.setUpdatedAt(v.Id, v.updated_at)
-				newUrls = append(newUrls, Url{Id: v.Id, Url: v.languages_url, Type: Language})
-				newUrls = append(newUrls, Url{Id: v.Id, Url: v.readme_url, Type: Readme})
+			if olderThan(cr, v.Id, v.Updated_at) {
+				setUpdatedAt(cr, v.Id, v.Updated_at)
+				newUrls = append(newUrls, Url{Id: v.Id, Url: v.Languages_url, Type: Language})
+				newUrls = append(newUrls, Url{Id: v.Id, Url: v.Readme_url, Type: Readme})
 			}
-			(*r).setRepository(v.Id, v)
+			setRepository(cr, v.Id, v)
 		}
 	}
 
-	for _, v := range *r {
-		if !repos.nameExists(v.Name) {
+	for _, v := range cr {
+		if !nameExists(repos, v.Name) {
 			removeRepository(r, v.Name)
 		}
 	}
+
+	r.writeJson(cr)
+	r.unlock()
 
 	return newUrls, nil
 }
@@ -193,15 +225,4 @@ func getReadme(u string) (string, error) {
 		return "", nil
 	}
 	return string(body), nil
-}
-
-func takeUrls(items *Urls, n int) Urls {
-	if n > len(*items) {
-		u := (*items)
-		*items = (*items)[:0]
-		return u
-	}
-	u := (*items)[:n]
-	*items = (*items)[n:]
-	return u
 }

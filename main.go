@@ -18,8 +18,15 @@ const (
 )
 
 func main() {
+	cd, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
+	createDir(cd, "/data")
 	var repos Repositories
+	repos.init(cd + "/data/repositories.json")
 	var urls Urls
+	urls.init(cd + "/data/urls.json")
 	scheduler(&repos, &urls)
 
 	watcher, err := fsnotify.NewWatcher()
@@ -55,7 +62,7 @@ func main() {
 
 	router.GET("/api/v1/data", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"repositories": repos,
+			"repositories": toRepositories(repos.readJsonSafely()),
 		})
 	})
 
