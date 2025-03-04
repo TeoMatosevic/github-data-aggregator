@@ -60,5 +60,9 @@ func main() {
 		port = "8080"
 	}
 
-	router.Run("127.0.0.1:" + port)
+	if os.Getenv("ENVIRONMENT") == "development" {
+		router.Run("127.0.0.1:" + port)
+	} else {
+		router.Run("0.0.0.0:" + port)
+	}
 }
