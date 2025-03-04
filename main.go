@@ -1,14 +1,11 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"os"
-	"strings"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"gopkg.in/fsnotify.v1"
 )
 
 const (
@@ -18,39 +15,10 @@ const (
 )
 
 func main() {
-	cd, err := os.Getwd()
-	if err != nil {
-		panic(err)
-	}
-	createDir(cd, "/data")
-	var repos Repositories
-	repos.init(cd + "/data/repositories.json")
-	var urls Urls
-	urls.init(cd + "/data/urls.json")
-	scheduler(&repos, &urls)
+	initDatabase()
 
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		fmt.Println("Error:", err)
-	}
-	defer watcher.Close()
-
-	go func() {
-		for {
-			select {
-			case event := <-watcher.Events:
-				if strings.HasSuffix(event.Name, "app_offline.htm") {
-					fmt.Println("Exiting...")
-					os.Exit(0)
-				}
-			}
-		}
-	}()
-
-	currentDir, err := os.Getwd()
-	if err := watcher.Add(currentDir); err != nil {
-		fmt.Println("Error:", err)
-	}
+	repos := Repositories{}
+	urls := Urls{}
 
 	router := gin.Default()
 
@@ -62,7 +30,27 @@ func main() {
 
 	router.GET("/api/v1/data", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"repositories": toRepositories(repos.readJsonSafely()),
+			"repositories": toRepositories(repos.read()),
+		})
+	})
+
+	router.POST("/api/v1/repos", func(c *gin.Context) {
+		u, err := getRepositories(&repos, &urls)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"urls": u,
+		})
+	})
+
+	router.POST("/api/v1/urls", func(c *gin.Context) {
+		u := sendRequests(&repos, &urls)
+		c.JSON(http.StatusOK, gin.H{
+			"urls": u,
 		})
 	})
 
