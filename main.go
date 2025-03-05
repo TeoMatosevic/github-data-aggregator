@@ -1,11 +1,14 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"gopkg.in/fsnotify.v1"
 )
 
 const (
@@ -19,6 +22,28 @@ func main() {
 
 	repos := Repositories{}
 	urls := Urls{}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		panic(err)
+	}
+	defer watcher.Close()
+	go func() {
+		for {
+			select {
+			case event := <-watcher.Events:
+				if strings.HasSuffix(event.Name, "app_offline.htm") {
+					fmt.Println("Exiting...")
+					os.Exit(0)
+				}
+			}
+		}
+	}()
+
+	currentDir, err := os.Getwd()
+	if err := watcher.Add(currentDir); err != nil {
+		fmt.Println("Error:", err)
+	}
 
 	router := gin.Default()
 
