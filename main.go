@@ -63,6 +63,6 @@ func main() {
 	if os.Getenv("ENVIRONMENT") == "local" {
 		router.Run("127.0.0.1:" + port)
 	} else {
-		router.Run("0.0.0.0:" + port)
+		router.Run(":" + port)
 	}
 }
