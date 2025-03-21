@@ -13,14 +13,17 @@ import (
 
 const (
 	reposApiURL = "https://api.github.com/users/TeoMatosevic/repos?type=all"
+	orgsApiURL  = "https://api.github.com/users/TeoMatosevic/orgs?type=all"
 	Language    = iota
 	Readme      = iota
+	Org         = iota
 )
 
 func main() {
 	initDatabase()
 
 	repos := Repositories{}
+	orgs := Organizations{}
 	urls := Urls{}
 
 	watcher, err := fsnotify.NewWatcher()
@@ -55,12 +58,13 @@ func main() {
 
 	router.GET("/api/v1/data", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"repositories": toRepositories(repos.read()),
+			"repositories":  toRepositories(repos.read()),
+			"organizations": orgs.read(),
 		})
 	})
 
 	router.POST("/api/v1/repos", func(c *gin.Context) {
-		u, err := getRepositories(&repos, &urls)
+		u, err := getRepositories(&repos, &urls, &orgs)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": err.Error(),
@@ -73,7 +77,7 @@ func main() {
 	})
 
 	router.POST("/api/v1/urls", func(c *gin.Context) {
-		u := sendRequests(&repos, &urls)
+		u := sendRequests(&repos, &urls, &orgs)
 		c.JSON(http.StatusOK, gin.H{
 			"urls": u,
 		})

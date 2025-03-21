@@ -34,9 +34,44 @@ type Urls struct {
 	m sync.Mutex
 }
 
-func (r *Repositories) read() []RepositoryEntity {
+type Organization struct {
+	Id          float64 `json:"id"`
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	Readme_url  string  `json:"readme_url"`
+	Readme      string  `json:"readme"`
+}
+
+type Organizations struct {
+	m sync.Mutex
+}
+
+func (o *Organizations) getCounter() int {
+	o.m.Lock()
+	defer o.m.Unlock()
+
+	var count int
+	err := db.QueryRow("SELECT count FROM counters WHERE type='urls'").Scan(&count)
+	if err != nil {
+		panic(err)
+	}
+
+	return count
+}
+
+func (r *Organizations) incrementCounter() {
 	r.m.Lock()
 	defer r.m.Unlock()
+
+	_, err := db.Exec("UPDATE counters SET count=count+1 WHERE type='urls'")
+	if err != nil {
+		panic(err)
+	}
+}
+
+func (o *Repositories) read() []RepositoryEntity {
+	o.m.Lock()
+	defer o.m.Unlock()
 
 	var repos []map[string]interface{}
 	rows, err := db.Query("SELECT * FROM repositories")
@@ -318,6 +353,7 @@ type Repository struct {
 	Description string                 `json:"description"`
 	Languages   map[string]interface{} `json:"languages"`
 	Readme      string                 `json:"readme"`
+	Last_update time.Time              `json:"last_update"`
 }
 
 func toRepositories(r []RepositoryEntity) []Repository {
@@ -330,7 +366,94 @@ func toRepositories(r []RepositoryEntity) []Repository {
 			Description: v.Description,
 			Languages:   v.Languages,
 			Readme:      v.Readme,
+			Last_update: v.Updated_at,
 		})
 	}
 	return repos
+}
+
+func (o *Organizations) nameExists(orgs []Organization, name string) bool {
+	for _, v := range orgs {
+		if v.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (o *Organizations) read() []Organization {
+	o.m.Lock()
+	defer o.m.Unlock()
+
+	var orgs []map[string]interface{}
+	rows, err := db.Query("SELECT * FROM organizations")
+	if err != nil {
+		panic(err)
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var id float64
+		var name, description, readme_url, readme string
+		err = rows.Scan(&id, &name, &description, &readme_url, &readme)
+		if err != nil {
+			panic(err)
+		}
+		orgs = append(orgs, map[string]interface{}{
+			"id":          id,
+			"name":        name,
+			"description": description,
+			"readme_url":  readme_url,
+			"readme":      readme,
+		})
+	}
+
+	var or []Organization
+	for _, v := range orgs {
+		or = append(or, Organization{
+			Id:          v["id"].(float64),
+			Name:        v["name"].(string),
+			Description: v["description"].(string),
+			Readme_url:  v["readme_url"].(string),
+			Readme:      v["readme"].(string),
+		})
+	}
+	return or
+}
+
+func (o *Organizations) write(org Organization) {
+	o.m.Lock()
+	defer o.m.Unlock()
+
+	_, err := db.Exec("INSERT INTO organizations (id, name, description, readme_url, readme) VALUES ($1, $2, $3, $4, $5)", org.Id, org.Name, org.Description, org.Readme_url, org.Readme)
+	if err != nil {
+		panic(err)
+	}
+
+	log.Println("[INFO] Added organization", org.Name)
+}
+
+func (o *Organizations) set(org Organization) {
+	o.m.Lock()
+	defer o.m.Unlock()
+
+	_, err := db.Exec("UPDATE organizations SET name=$1, description=$2, readme_url=$3, readme=$4 WHERE id=$5", org.Name, org.Description, org.Readme_url, org.Readme, org.Id)
+	if err != nil {
+		panic(err)
+	}
+
+	log.Println("[INFO] Updated organization", org.Name)
+}
+
+func (o *Organizations) remove(name string) {
+	o.m.Lock()
+	defer o.m.Unlock()
+
+	_, err := db.Exec("DELETE FROM organizations WHERE name=$1", name)
+	if err != nil {
+		panic(err)
+	}
+
+	log.Println("[INFO] Removed organization", name)
 }

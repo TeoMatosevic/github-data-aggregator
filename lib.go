@@ -41,15 +41,63 @@ func initDatabase() {
 	}
 
 	sqlStmt = `
+	create table if not exists organizations (
+		id integer not null primary key,
+		name text,
+		description text,
+		readme_url text,
+		readme text
+	);
+	`
+	_, err = db.Exec(sqlStmt)
+	if err != nil {
+		panic(err)
+	}
+
+	sqlStmt = `
 	create table if not exists urls (id string not null primary key, repo_id integer, url text, type integer);
 	`
 	_, err = db.Exec(sqlStmt)
 	if err != nil {
 		panic(err)
 	}
+
+	sqlStmt = `
+	create table if not exists counters (id string not null primary key, type string, count integer);
+	`
+
+	_, err = db.Exec(sqlStmt)
+	if err != nil {
+		panic(err)
+	}
+
+	sqlStmt = `
+	insert into counters (id, type, count) values ('1', 'urls', 0);
+	`
+
+	_, err = db.Exec(sqlStmt)
+	if err != nil {
+		sqlStmt = `
+		update counters set count = 0 where type = 'urls';
+		`
+		_, err = db.Exec(sqlStmt)
+		if err != nil {
+			panic(err)
+		}
+	}
 }
 
-func getRepositories(r *Repositories, urls *Urls) ([]Url, error) {
+func getRepositories(r *Repositories, urls *Urls, o *Organizations) ([]Url, error) {
+	counter := o.getCounter()
+	defer o.incrementCounter()
+	if counter%4 == 0 {
+		u, err := getOrganizationUrls(o)
+		if err != nil {
+			return nil, err
+		}
+		urls.addUrls(u)
+		return u, nil
+	}
 	u, err := getRepoUrls(r)
 	if err != nil {
 		return nil, err
@@ -59,7 +107,7 @@ func getRepositories(r *Repositories, urls *Urls) ([]Url, error) {
 	return u, nil
 }
 
-func sendRequests(r *Repositories, urls *Urls) []Url {
+func sendRequests(r *Repositories, urls *Urls, o *Organizations) []Url {
 	numberOfUrls := 10
 
 	u := urls.take(numberOfUrls)
@@ -70,6 +118,8 @@ func sendRequests(r *Repositories, urls *Urls) []Url {
 			addLanguage(r, v)
 		case Readme:
 			addReadme(r, v)
+		case Org:
+			addOrganizationReadme(o, v)
 		}
 	}
 
@@ -102,6 +152,21 @@ func addReadme(r *Repositories, url Url) {
 			rc[i].Readme = readme
 			log.Println("[INFO] Updated readme for", rc[i].Full_name)
 			r.update(rc[i])
+		}
+	}
+}
+
+func addOrganizationReadme(o *Organizations, url Url) {
+	oc := o.read()
+	readme, err := getOrganizationReadme(url.Url)
+	if err != nil {
+		return
+	}
+	for i, vv := range oc {
+		if vv.Id == url.RepoId {
+			oc[i].Readme = readme
+			log.Println("[INFO] Updated readme for", oc[i].Name)
+			o.set(oc[i])
 		}
 	}
 }
@@ -139,8 +204,67 @@ func unmarshalRepository(data []byte) ([]RepositoryEntity, error) {
 	return r, nil
 }
 
+func unmarshalOrganization(data []byte) ([]Organization, error) {
+	var r []Organization
+	var ud []map[string]interface{}
+	var err = json.Unmarshal(data, &ud)
+	if err != nil {
+		empty := []Organization{}
+		return empty, nil
+	}
+	for _, v := range ud {
+		readMe := fmt.Sprintf("https://api.github.com/repos/%s/.github/contents/profile/README.md", v["login"])
+		r = append(r, Organization{
+			Id:          v["id"].(float64),
+			Name:        v["login"].(string),
+			Description: v["description"].(string),
+			Readme_url:  readMe,
+			Readme:      "",
+		})
+	}
+	return r, nil
+}
+
 func removeRepository(r *Repositories, name string) {
 	r.remove(name)
+}
+
+func getOrganizationUrls(o *Organizations) ([]Url, error) {
+	var newUrls []Url
+	response, err := http.Get(orgsApiURL)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	res, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, err
+	}
+	orgs, err := unmarshalOrganization(res)
+	if err != nil {
+		return nil, err
+	}
+
+	co := o.read()
+
+	for _, v := range orgs {
+		uuid_1 := uuid.New().String()
+		if !o.nameExists(co, v.Name) {
+			co = append(co, v)
+			newUrls = append(newUrls, Url{Id: uuid_1, RepoId: v.Id, Url: v.Readme_url, Type: Org})
+			o.write(v)
+		} else {
+			o.set(v)
+		}
+	}
+
+	for _, v := range co {
+		if !o.nameExists(orgs, v.Name) {
+			o.remove(v.Name)
+		}
+	}
+
+	return newUrls, nil
 }
 
 func getRepoUrls(r *Repositories) ([]Url, error) {
@@ -215,6 +339,31 @@ func getReadme(u string) (string, error) {
 	req.Header.Set("Accept", "application/vnd.github.raw+json")
 	client := &http.Client{}
 	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != 200 {
+		return "", nil
+	}
+	return string(body), nil
+}
+
+func getOrganizationReadme(u string) (string, error) {
+	req, err := http.NewRequest("GET", u, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "application/vnd.github.raw+json")
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if resp.StatusCode == 404 {
+		return "", nil
+	}
 	if err != nil {
 		return "", err
 	}
