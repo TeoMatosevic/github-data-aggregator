@@ -72,7 +72,8 @@ func main() {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"urls": u,
+			"urls": u.u,
+			"type": u.t,
 		})
 	})
 

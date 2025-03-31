@@ -87,16 +87,21 @@ func initDatabase() {
 	}
 }
 
-func getRepositories(r *Repositories, urls *Urls, o *Organizations) ([]Url, error) {
+func getRepositories(r *Repositories, urls *Urls, o *Organizations) (*RepositoriesResponse, error) {
 	counter := o.getCounter()
 	defer o.incrementCounter()
+	var rr *RepositoriesResponse
 	if counter%4 == 0 {
 		u, err := getOrganizationUrls(o)
 		if err != nil {
 			return nil, err
 		}
 		urls.addUrls(u)
-		return u, nil
+		rr = &RepositoriesResponse{
+			u: u,
+			t: "orgs",
+		}
+		return rr, nil
 	}
 	u, err := getRepoUrls(r)
 	if err != nil {
@@ -104,7 +109,11 @@ func getRepositories(r *Repositories, urls *Urls, o *Organizations) ([]Url, erro
 	}
 
 	urls.addUrls(u)
-	return u, nil
+	rr = &RepositoriesResponse{
+		u: u,
+		t: "repos",
+	}
+	return rr, nil
 }
 
 func sendRequests(r *Repositories, urls *Urls, o *Organizations) []Url {
@@ -249,7 +258,7 @@ func getOrganizationUrls(o *Organizations) ([]Url, error) {
 
 	for _, v := range orgs {
 		uuid_1 := uuid.New().String()
-		if !o.nameExists(co, v.Name) {
+		if !o.exists(co, v.Id) {
 			co = append(co, v)
 			newUrls = append(newUrls, Url{Id: uuid_1, RepoId: v.Id, Url: v.Readme_url, Type: Org})
 			o.write(v)
@@ -259,7 +268,7 @@ func getOrganizationUrls(o *Organizations) ([]Url, error) {
 	}
 
 	for _, v := range co {
-		if !o.nameExists(orgs, v.Name) {
+		if !o.exists(orgs, v.Id) {
 			o.remove(v.Name)
 		}
 	}
@@ -288,7 +297,7 @@ func getRepoUrls(r *Repositories) ([]Url, error) {
 	for _, v := range repos {
 		uuid_1 := uuid.New().String()
 		uuid_2 := uuid.New().String()
-		if !nameExists(cr, v.Name) {
+		if !exists(cr, v.Id) {
 			cr = append(cr, v)
 			newUrls = append(newUrls, Url{Id: uuid_1, RepoId: v.Id, Url: v.Languages_url, Type: Language})
 			newUrls = append(newUrls, Url{Id: uuid_2, RepoId: v.Id, Url: v.Readme_url, Type: Readme})
@@ -305,7 +314,7 @@ func getRepoUrls(r *Repositories) ([]Url, error) {
 	}
 
 	for _, v := range cr {
-		if !nameExists(repos, v.Name) {
+		if !exists(repos, v.Id) {
 			removeRepository(r, v.Name)
 		}
 	}

@@ -46,6 +46,11 @@ type Organizations struct {
 	m sync.Mutex
 }
 
+type RepositoriesResponse struct {
+	u []Url
+	t string
+}
+
 func (o *Organizations) getCounter() int {
 	o.m.Lock()
 	defer o.m.Unlock()
@@ -292,9 +297,9 @@ func (u *Urls) addUrls(urls []Url) {
 	}
 }
 
-func nameExists(r []RepositoryEntity, name string) bool {
+func exists(r []RepositoryEntity, id float64) bool {
 	for _, v := range r {
-		if v.Name == name {
+		if v.Id == id {
 			return true
 		}
 	}
@@ -372,9 +377,9 @@ func toRepositories(r []RepositoryEntity) []Repository {
 	return repos
 }
 
-func (o *Organizations) nameExists(orgs []Organization, name string) bool {
+func (o *Organizations) exists(orgs []Organization, id float64) bool {
 	for _, v := range orgs {
-		if v.Name == name {
+		if v.Id == id {
 			return true
 		}
 	}
